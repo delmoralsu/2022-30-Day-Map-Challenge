@@ -2,6 +2,7 @@ library(tidyverse)
 library(ggplot2)
 library(rgdal)
 library(sf)
+library(broom)
 
 setwd("D:/Dropbox/Proyectos/Proyectos/30daymap/")
 
@@ -9,7 +10,6 @@ setwd("D:/Dropbox/Proyectos/Proyectos/30daymap/")
 ## y extraer información de negocios que tengan el código de comercio al por menor de libros,
 ## o que tengan "librería" o "libros" en el nombre.
 ##Por añadir: código para descargar, descomprimir y añadir
-rm(ageb)
 ## DENUE de comercio al por menor
 denue1cdmx <- read.csv("Data/DENUE/denue1.csv")
 denue1cdmx <- filter(denue1cdmx, cve_ent == 9)
@@ -84,85 +84,112 @@ tacos2cdmx <- rbind(tacos2cdmx, filter(denuealimentos2, grepl("TAQUERÍA", ignor
 tacos2cdmx <- rbind(tacos2cdmx, filter(denuealimentos2, grepl("TACOS", ignore.case = T, nombre_act)))
 tacos2cdmx <- rbind(tacos2cdmx, filter(denuealimentos2, grepl("TAQUERÍA", ignore.case = T, nombre_act)))
 tacos2cdmx <- rbind(tacos2cdmx, filter(denuealimentos2, grepl("TAQUERIA", ignore.case = T, nombre_act)))
+rm(denuealimentos2)
+rm(tacos2cdmx)
 
+## Crear una base con todas las taquerías
 tacoscdmxfull <- rbind(tacoscdmx, tacos1cdmx)
+rm(tacos1cdmx, tacoscdmx)
 
+## Eliminar entradas duplicadas
 tacoscdmxfull <- tacoscdmxfull[!duplicated(tacoscdmxfull[, 1]),]
 
+## Seleccionar variables que nos interesan
 tacoscdmxfull <- tacoscdmxfull %>%
   select(id, latitud, longitud)
 
-colonias <- read_sf("Data/Map/mgpc_2019.shp")
-
-tacoscdmxubi <- tacoscdmxfull[, 2:3]
-tacoscdmxubi <- tacoscdmxubi[, c(2,1)]
-
-res <- over(tacoscdmxubi, colonias)
-
+## Cargar shapefiles de las colonias de CDMX
 colonias <- read_sf("Data/Map/mgpc_2019.shp")
 colonias2 <- readOGR("Data/georef_colonias/georef-mexico-colonia-millesime.shp")
 
-proj4string(colonias2)
-rm(tacoscdmxubi)
-
+## Reordenar variables para tener longitud y luego latitud
 tacoscdmxubi <- tacoscdmxfull[, 2:3]
 tacoscdmxubi <- tacoscdmxubi[, c(2,1)]
 
+## Determinar intersección entre ubicaciones de tacos y polígonos de colonias
+## para saber cuántos tacos por colonia
+
+res <- over(tacoscdmxubi, colonias)
+
+## Transformar datos a base espacial
 tacoscdmxubi <- SpatialPointsDataFrame(tacoscdmxubi, data.frame(id=1:11197))
 
-proj4string(tacoscdmxubi) <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
-intersection <- st_intersection(colonias2, tacoscdmxubi)
+## Averiguar tipo de proyección de segundo SHP.
+## readOGR conserva proyección
 proj4string(colonias2)
-plot(tacoscdmxubi, col = "red", add = TRUE)
 
+## Asignar proyección a base espacial
+proj4string(tacoscdmxubi) <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+rm(tacoscdmxubi)
 
-proj4string(colonias)
-library(move)
+## Determinar intersección de tacos con polígonos de colonias
 res <- over(tacoscdmxubi, colonias2)
 
-ggplot() +
-  geom_sf(data = colonias, aes(x = long, y = lat, group = group), colour = "black", fill = NA)
-table(res$col_name)
-
+## Transformar datos a data.frame
 taquerias <- data.frame(res)
 
-map
-gageb <- read_sf("Data/ageb/u_territorial_agebs_scince_inegi_2010.shp")
-gageb <- filter(gageb, gageb$cvegeoedo == "09")
+## Transformar a taquerias totales por colonia
+taqueriaspop <- taquerias %>%
+  count(col_code)
 
+## Crear dataframe con población por colonia
+pop <- data.frame(colonias)
+pop <- pop %>%
+  dplyr::select(CVEUT, POB2010)
 
+## Renombrar variable de identificación de colonia en base de
+## taquerías
+colnames(taqueriaspop) <- c("CVEUT", "Total")
 
-colonias$DTTOLOC
-  
+## Unir bases de población y taquerías
+taqueriaspop <- merge(taqueriaspop, pop, by = "CVEUT")
 
+## Calcular taquerías per capita
+taqueriaspop <- taqueriaspop %>%
+  mutate(Percapita = ((Total/as.numeric(POB2010))))
 
-coloniastodo <- colonias$NOMUT
-num <- seq(0, 1814)
+## Revisar nombres y que no haya NAs en Percapita
+colnames(taqueriaspop) <- c("col_code", "Total", "POB2010", "Percapita")
+taqueriaspop[is.na$Percapita] <- 0
 
-coloniastodo <- colonias$NOMUT
-coloniasnomdt <- colonias$NOMDT
-coloniasnun <- colonias$CVEUT
-acorregir <- cbind(coloniastodo, coloniasnomdt, coloniasnun)
+## Crear base final, con información espacial, de taquerías y de
+## población
+colonias_fortified <- tidy(colonias2, region = "col_code")
+colonias_fortified <- colonias_fortified %>%
+  left_join(., taqueriaspop, by = c("id" ="col_code"))
 
-library(xlsx)
-write.xlsx(acorregir, "base.xlsx")
-write.xlsx(tacoscdmx, "acorregir.xlsx")
-
-coloniastacos <- unique(tacoscdmx$nomb_asent)
-
-coloniastodo
-
-i <- 0
-x <- 0
-for (i in 0:length(tacoscdmx$nomb_asent)){
-  x <- sum(colonias$NOMUT %in% tacoscdmx$nomb_asent[i])
-  if ( x == 0){
-    print(tacoscdmx$nomb_asent[i])
-  }
-}
-
-arrange(tacoscdmx$nomb_asent)
-
+## Agregar SHAPEFILE de alcaldías, para dibujar límites de CDMX
 alcaldias <- readOGR("Data/alcaldias/alcaldias_cdmx.shp")
 
+## Primer mapa: total de taquerías
+ggplot() + 
+  geom_polygon(data = alcaldias, aes(x = long, y = lat, group = group), colour = "black", fill = NA) +
+  geom_polygon(data = colonias_fortified, aes(fill = Total, x = long, y = lat, group = group), colour = "black") +
+  theme_void() +
+  theme(plot.title = element_text(size = 38, face="bold", hjust=.5),
+        plot.subtitle = element_text(size = 32, hjust=.5, margin=margin(2, 0, 5, 0)),
+        plot.caption = element_text(size = 15, vjust=10),
+        legend.position = "right",
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        legend.key.size = unit(2, 'cm')) +
+  labs(title = "Taquerías en CDMX", subtitle = "Total por colonia", caption = "Fuentes: INEGI DENUE (05/2022) & GobCDMX.")
+
+ggsave("tacos_total.jpg", width = 15, height = 15) 
+
+## Segundo mapa: taquerías per capita
+ggplot() + 
+  geom_polygon(data = alcaldias, aes(x = long, y = lat, group = group), colour = "black", fill = NA) +
+  geom_polygon(data = colonias_fortified, aes(fill = Percapita, x = long, y = lat, group = group), colour = "black") +
+  theme_void() +
+  theme(plot.title = element_text(size = 38, face="bold", hjust=.5),
+        plot.subtitle = element_text(size = 32, hjust=.5, margin=margin(2, 0, 5, 0)),
+        plot.caption = element_text(size = 15, vjust=10),
+        legend.position = "right",
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        legend.key.size = unit(2, 'cm')) +
+  labs(title = "Taquerías en CDMX", subtitle = "Per capita por colonia (población 2010)", caption = "Fuentes: INEGI DENUE (05/2022) & GobCDMX.")
+
+ggsave("tacos_percapita.jpg", width = 15, height = 15)
 
