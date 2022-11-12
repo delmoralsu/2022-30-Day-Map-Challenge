@@ -2,6 +2,7 @@ setwd("D:/Dropbox/Proyectos/Proyectos/30daymap")
 library(rgdal)
 library(rgeos)
 library(sf)
+library(ggplot2)
 
 map <- readOGR("Data/concesionado_ruta_shp/Concesionado_Ruta.shp")
 df <- readOGR("Data/alcaldias/alcaldias_cdmx.shp")
@@ -17,6 +18,9 @@ library(RColorBrewer)
 ?RColorBrewer
 rutasdf <- gIntersection(map, df)
 rutasdf <- st_as_sf(rutasdf)
+pob <- st_as_sf(pob)
+pob
+
 ggplot() +
   geom_sf(data = sc, fill = "darkgrey") +
   geom_sf(data = pob, aes(fill = porc)) +
@@ -29,7 +33,7 @@ ggplot() +
                     label.position = "bottom", 
                     label.hjust = 0.5),
                     name = "Porcentaje de población atendida por colonia") +
-  labs(title = "Población atendida por el transporte\n público concesionado en CDMX - 2022",
+  labs(title = "Población atendida por el transporte\n concesionado en CDMX - 2022",
        caption = "Fuentes: GobCDMX, SEMOVI e IPDP.") +
   theme_void() +
   theme(legend.position = "bottom",
